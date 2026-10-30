@@ -57,7 +57,7 @@ html,body{touch-action:manipulation;-webkit-text-size-adjust:100%}select{font-si
 <div class="panelhead"><span class="hint" id="modeHint">Drag blocks into the workspace, then press Run mission.</span><button id="showCodeBtn">Show generated Python</button></div>
 <div id="generatedWrap" style="display:none;padding:12px"><pre id="generatedCode" class="code" style="height:auto;min-height:80px;white-space:pre-wrap;margin:0"></pre></div>
 </section>
-<section class="panel"><div class="panelhead"><strong>3D FLIGHT ZONE</strong><span class="hint">Drag to orbit · Scroll to zoom</span></div><div class="viewwrap"><canvas id="scene"></canvas><div class="hud"><span>MISSION <b id="hudM">01</b></span><span>STATUS <b id="flightStatus">READY</b></span><span>RINGS <b id="hudR">0/0</b></span></div><div id="res" class="res" style="display:none" role="status"></div></div>
+<section class="panel"><div class="panelhead"><strong>3D FLIGHT ZONE</strong><span class="hint">Drag to rotate</span></div><div class="viewwrap"><canvas id="scene"></canvas><div class="hud"><span>MISSION <b id="hudM">01</b></span><span>STATUS <b id="flightStatus">READY</b></span><span>RINGS <b id="hudR">0/0</b></span></div><div id="res" class="res" style="display:none" role="status"></div></div>
 <div class="status"><div class="stat"><label>ALTITUDE</label><strong id="alt">0.0 m</strong></div><div class="stat"><label>POSITION X / Z</label><strong id="pos">0.0 / 0.0</strong></div><div class="stat"><label>SCORE</label><strong id="score">—</strong></div><div class="stat"><label>STARS</label><strong id="stars">—</strong></div><div class="stat"><label>FLIGHT TIME</label><strong id="tm">0.0 s</strong></div></div></section>
 </div>
 <div class="bottom">
@@ -168,9 +168,9 @@ const ptrs=new Map();let pd=0;const cl=(v,a,b)=>Math.max(a,Math.min(b,v));const 
 canvas.addEventListener('pointerdown',e=>{ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});canvas.setPointerCapture(e.pointerId);if(ptrs.size===2)pd=pdist()});
 const pup=e=>{ptrs.delete(e.pointerId);pd=0};canvas.addEventListener('pointerup',pup);canvas.addEventListener('pointercancel',pup);
 canvas.addEventListener('pointermove',e=>{const p=ptrs.get(e.pointerId);if(!p)return;const ox=p.x,oy=p.y;p.x=e.clientX;p.y=e.clientY;
-if(ptrs.size===2){const d=pdist();if(pd&&d>0)radius=cl(radius*pd/d,12,38);pd=d;cam()}
+if(ptrs.size===2){const d=pdist();pd=d;cam()}
 else if(ptrs.size===1){theta-=(e.clientX-ox)*.008;phi=cl(phi+(e.clientY-oy)*.008,.25,1.45);cam()}});
-canvas.addEventListener('wheel',e=>{radius=Math.max(12,Math.min(38,radius+e.deltaY*.025));cam();e.preventDefault()},{passive:false});
+
 function resize(){const r=canvas.getBoundingClientRect();renderer.setSize(r.width,r.height,false);camera.aspect=r.width/r.height;camera.updateProjectionMatrix()}
 new ResizeObserver(resize).observe(canvas);resize();
 (function frame(){requestAnimationFrame(frame);props.forEach(p=>p.rotation.y+=.3);ringMeshes.forEach((r,i)=>{if(!got[i])r.rotation.z=Math.sin(Date.now()*.003)*.1});renderer.render(scene,camera)})()}
@@ -181,7 +181,7 @@ const pr=new THREE.Mesh(new THREE.TorusGeometry(.85,.07,8,32),mat(0xffffff));pr.
 m.rings.forEach(r=>{const t=new THREE.Mesh(new THREE.TorusGeometry(.85,.08,8,24),mat(0xff8a24,{emissive:0x331400}));t.position.set(r[0],r[1],r[2]);dyn.add(t);ringMeshes.push(t)})}
 function updateHud(){$('alt').textContent=S.y.toFixed(1)+' m';$('pos').textContent=S.x.toFixed(1)+' / '+S.z.toFixed(1);$('hudR').textContent=got.filter(Boolean).length+'/'+MS[cur].rings.length}
 function resetDrone(say){hideRes();simT=0;$('tm').textContent='0.0 s';S.x=0;S.z=8;S.y=0;S.yaw=0;S.landed=true;S.up=false;crashed=false;got=MS[cur].rings.map(()=>false);ringMeshes.forEach(r=>r.material.color.setHex(0xff8a24));drone.position.set(0,.25,8);drone.rotation.y=0;updateHud();$('score').textContent='—';$('stars').textContent='—';$('flightStatus').textContent='READY';if(say)log('[RESET] Drone returned to base.')}
-function loadMission(i){cur=i;const m=MS[i];buildMission();$('mTitle').textContent='Mission '+String(i+1).padStart(2,'0')+' — '+m.n;$('hudM').textContent=String(i+1).padStart(2,'0');$('mName').textContent=m.n;$('mLvl').textContent=m.lvl;$('mBrief').innerHTML=m.brief;
+function loadMission(i){cur=i;try{localStorage.setItem('sbsDroneCur',String(i))}catch(e){}const m=MS[i];buildMission();$('mTitle').textContent='Mission '+String(i+1).padStart(2,'0')+' — '+m.n;$('hudM').textContent=String(i+1).padStart(2,'0');$('mName').textContent=m.n;$('mLvl').textContent=m.lvl;$('mBrief').innerHTML=m.brief;
 ws.clear();if(i===0)Blockly.Xml.domToWorkspace(Blockly.utils.xml.textToDom(STARTER),ws);
 $('pythonCode').value=i===0?'takeoff()\nmove_forward(5)\nturn_right(90)\nmove_forward(3)\nland()':'# Write your program here\ntakeoff()\n';
 running=false;token++;$('runBtn').disabled=false;$('stopBtn').disabled=true;resetDrone(false);fillSel();log('[MISSION] '+m.n+' loaded.')}
@@ -273,6 +273,7 @@ await ref.set({name:($('nick').value.trim()||'Anonymous').slice(0,20),yr:$('yr')
 $('clrBtn').onclick=async()=>{if(!db||!confirm('Clear the whole class leaderboard?'))return;try{const s=await db.collection('scores').get();await Promise.all(s.docs.map(d=>db.collection('scores').doc(d.id).delete()))}catch(e){log('[TEACHER] Clear failed ('+(e.code||e.message)+').')}};
 (async()=>{try{if(typeof claude==='undefined')throw 0;const u=await claude.use('user');db=await claude.use('db');if(u){uid=await u.id();if(uid&&u.canEdit&&u.canEdit()===true)$('teacherBar').style.display='flex'}
 if(db&&uid)db.collection('scores').orderBy('total','desc').limit(10).onSnapshot(renderLb,()=>{$('lb').textContent='Leaderboard unavailable.'});else $('lb').textContent='Leaderboard needs a signed-in claude.ai view.'}catch(e){$('lb').textContent='Leaderboard needs a signed-in claude.ai view.'}})();
-init3D();loadMission(0);
+let sv=0;try{sv=Number(localStorage.getItem('sbsDroneCur'))||0}catch(e){}
+init3D();loadMission(sv>=0&&sv<MS.length?sv:0);
 </script>
 </body></html>
